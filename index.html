@@ -1,0 +1,2051 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>カメラ＋手描き＋ズーム＋映像調整＋静止画／動画／TL＋なげなわ＋ステッカー保存</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont;
+      background: #000;
+      color: #fff;
+    }
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 8px 12px;
+      font-size: 14px;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 5;
+      position: relative;
+    }
+    header span.title {
+      font-weight: 600;
+    }
+    #header-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #camera-wrapper {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #camera-inner {
+      position: absolute;
+      inset: 0;
+      transform-origin: 0 0;
+    }
+    #video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #draw-layer,
+    #ui-layer {
+      position: absolute;
+      inset: 0;
+    }
+    #draw-layer {
+      touch-action: none;
+    }
+    #ui-layer {
+      pointer-events: none; /* ステッカー操作やなげなわ時だけ JS から auto に切り替える */
+    }
+
+    /* ▼ 下のツールバー */
+    #toolbar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 8px;
+      transform: none;
+      display: flex;
+      flex-wrap: nowrap;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(6px);
+      z-index: 20;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .tool-btn {
+      width: clamp(28px, 7vw, 40px);
+      height: clamp(28px, 7vw, 40px);
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.06);
+      color: #fff;
+      font-size: clamp(14px, 3vw, 20px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+    .tool-btn.small {
+      width: clamp(26px, 6.5vw, 36px);
+      height: clamp(26px, 6.5vw, 36px);
+      font-size: clamp(13px, 2.8vw, 18px);
+    }
+    .tool-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .tool-group-sep {
+      width: 4px;
+      flex: 0 0 auto;
+    }
+    .rec-timer {
+      font-size: 11px;
+      min-width: 40px;
+      text-align: center;
+      color: #eee;
+      flex: 0 0 auto;
+    }
+
+    /* フローティングパネル共通 */
+    .floating-panel {
+      position: fixed;
+      background: rgba(0,0,0,0.8);
+      padding: 6px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #eee;
+      z-index: 25;
+      max-width: 260px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+    .floating-panel .panel-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 11px;
+    }
+    .floating-panel label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 3px;
+      white-space: nowrap;
+    }
+    .floating-panel input[type="number"] {
+      width: 50px;
+      font-size: 11px;
+    }
+    .floating-panel input[type="color"] {
+      width: 32px;
+      height: 18px;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .floating-panel input[type="range"] {
+      width: 130px;
+    }
+    .floating-panel select {
+      font-size: 11px;
+      max-width: 150px;
+    }
+
+    /* ペンパネル */
+    #pen-panel {
+      top: 48px;
+      right: 10px;
+      display: none;
+    }
+
+    /* 映像設定パネル */
+    #video-panel {
+      right: 10px;
+      bottom: 84px;
+      display: none;
+    }
+
+    /* ヘッダ小ボタン */
+    #log-toggle,
+    #pen-toggle,
+    #btn-clear {
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.10);
+      color: #fff;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 20px;
+      padding: 0;
+    }
+
+    /* ログパネル */
+    #log-panel {
+      position: fixed;
+      left: 10px;
+      top: 56px;
+      width: 260px;
+      max-height: 50vh;
+      background: rgba(0,0,0,0.8);
+      border-radius: 8px;
+      padding: 6px;
+      font-size: 11px;
+      color: #eee;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+      z-index: 30;
+      display: none;
+    }
+    #log-panel.open {
+      display: block;
+    }
+    #log {
+      max-height: 40vh;
+      overflow-y: auto;
+      white-space: pre-line;
+    }
+
+    /* ズーム選択中の案内テキスト */
+    #zoom-hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: #fff;
+      z-index: 25;
+      display: none;
+      pointer-events: none;
+    }
+    #zoom-hint.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <span class="title">カメラ＋手描き＋ズーム＋映像調整＋静止画／動画／TL＋なげなわ＋ステッカー保存</span>
+      <div id="header-right">
+        <button id="pen-toggle" title="手描き設定の表示/非表示">✏️</button>
+        <button id="btn-clear" title="手描きクリア＋ステッカー削除">🧹</button>
+        <button id="log-toggle" title="ログ表示／非表示">ℹ️</button>
+      </div>
+    </header>
+
+    <div id="camera-wrapper">
+      <div id="camera-inner">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="draw-layer"></canvas>
+        <canvas id="ui-layer"></canvas>
+      </div>
+    </div />
+
+    <!-- 下のツールバー -->
+    <div id="toolbar">
+      <!-- カメラ -->
+      <button id="btn-start-camera" class="tool-btn" title="カメラ開始">🎦</button>
+
+      <div class="tool-group-sep"></div>
+
+      <!-- 静止画 -->
+      <button id="btn-shot" class="tool-btn" title="写真撮影（PNG）" disabled>📷</button>
+
+      <div class="tool-group-sep"></div>
+
+      <!-- 通常動画 -->
+      <button id="btn-start-rec" class="tool-btn small" title="動画録画開始" disabled>⏺</button>
+      <button id="btn-stop-rec" class="tool-btn small" title="動画録画停止" disabled>⏹</button>
+      <span id="rec-timer" class="rec-timer">00:00</span>
+
+      <div class="tool-group-sep"></div>
+
+      <!-- タイムラプス -->
+      <button id="btn-start-tl" class="tool-btn small" title="TL録画開始" disabled>⏱</button>
+      <button id="btn-stop-tl" class="tool-btn small" title="TL録画停止" disabled>⏹</button>
+      <span id="tl-timer" class="rec-timer">00:00</span>
+
+      <div class="tool-group-sep"></div>
+
+      <!-- ズーム -->
+      <button id="btn-zoom-select" class="tool-btn small" title="ズーム領域を選択">🔍</button>
+      <button id="btn-zoom-reset" class="tool-btn small" title="ズーム解除">🔁</button>
+
+      <div class="tool-group-sep" style="width:8px;"></div>
+
+      <!-- 映像設定アイコン -->
+      <button id="video-settings-toggle" class="tool-btn small" title="映像設定の表示/非表示">🎚</button>
+    </div>
+
+    <!-- 手描き設定パネル -->
+    <div id="pen-panel" class="floating-panel">
+      <div class="panel-title">手描き設定</div>
+      <label>色
+        <input type="color" id="pen-color" value="#ff0000">
+      </label>
+      <label>太さ
+        <input type="number" id="pen-size" min="1" max="40" value="5">
+      </label>
+
+      <!-- ペン種類 -->
+      <label>ペン種類
+        <select id="pen-type">
+          <option value="watercolor">水彩画</option>
+          <option value="chalk">チョーク</option>
+          <option value="crayon">クレヨン</option>
+          <option value="marker" selected>マジック</option>
+        </select>
+      </label>
+
+      <!-- スポイト -->
+      <label style="margin-top:4px; flex-direction: column; align-items: flex-start;">
+        <button type="button" id="pen-eyedropper"
+          style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;">
+          🎯 映像から色を取る
+        </button>
+        <span style="margin-top:2px;color:#ccc;">押したあと、映像上をタップするとその色がペン色になります。</span>
+      </label>
+
+      <!-- なげなわ -->
+      <label style="margin-top:4px; flex-direction: column; align-items: flex-start;">
+        <button type="button" id="pen-lasso"
+          style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;">
+          ✂️ なげなわ切り出し
+        </button>
+        <span style="margin-top:2px;color:#ccc;">ONにして映像をぐるっと囲むと、その部分を画像として切り出します。</span>
+      </label>
+
+      <!-- ステッカー保存／読込／削除 -->
+      <label style="margin-top:4px; flex-direction: column; align-items: flex-start;">
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <button type="button" id="sticker-save"
+            style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;">
+            💾 ステッカー保存
+          </button>
+          <button type="button" id="sticker-load"
+            style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;">
+            📂 読込
+          </button>
+          <button type="button" id="sticker-delete"
+            style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,80,80,0.8);background:rgba(255,80,80,0.15);color:#fff;cursor:pointer;">
+            🗑 削除
+          </button>
+        </div>
+        <span style="margin-top:2px;color:#ccc;">ステッカー配置の保存／読込／選択中ステッカーの削除。</span>
+      </label>
+      <input type="file" id="sticker-file" accept="application/json" style="display:none;">
+    </div>
+
+    <!-- 映像＋録画設定パネル -->
+    <div id="video-panel" class="floating-panel">
+      <div class="panel-title">録画／タイムラプス設定</div>
+      <label>動画FPS
+        <input type="number" id="video-fps" min="1" max="60" value="30">
+      </label>
+      <label>TL-FPS
+        <input type="number" id="tl-fps" min="1" max="60" value="10">
+      </label>
+      <label>TL間隔(ms)
+        <input type="number" id="tl-interval" min="100" value="500">
+      </label>
+
+      <div class="panel-title" style="margin-top:4px;">映像設定</div>
+      <label>明るさ
+        <input id="brightness" type="range" min="0.2" max="2" step="0.01" value="1">
+      </label>
+      <label>コントラスト
+        <input id="contrast" type="range" min="0.5" max="2" step="0.01" value="1">
+      </label>
+      <label>露出
+        <input id="exposure" type="range" min="-2" max="2" step="0.1" value="0">
+      </label>
+      <label>色温度
+        <input id="color-temp" type="range" min="-1" max="1" step="0.1" value="0">
+      </label>
+      <label>シャープ
+        <input id="sharpness" type="range" min="0" max="1" step="0.1" value="0">
+      </label>
+      <label>
+        <input id="line-boost" type="checkbox">
+        線・文字くっきり
+      </label>
+      <label>
+        <input id="noise-reduce" type="checkbox">
+        ノイズ軽減（ズーム時のもやもや抑制）
+      </label>
+
+      <div class="panel-title" style="margin-top:4px;">表示反転</div>
+      <label>
+        <input id="flip-h" type="checkbox" checked>
+        左右反転（ミラー）
+      </label>
+      <label>
+        <input id="flip-v" type="checkbox">
+        上下反転
+      </label>
+
+      <div class="panel-title" style="margin-top:4px;">カメラ選択</div>
+      <label>カメラ
+        <select id="camera-select" disabled></select>
+      </label>
+
+      <div class="panel-title" style="margin-top:4px;">音声</div>
+      <label>
+        <input id="audio-enabled" type="checkbox">
+        動画にマイク音声を入れる
+      </label>
+      <div style="margin-top:3px;color:#ccc;">
+        ※デフォルトは音声OFFです。<br>
+        ※「線・文字くっきり」「ノイズ軽減」は主に保存画像／録画動画に反映されます。<br>
+        ※ブラウザ録画は WebM 形式で保存されます。mp4/mov が必要な場合は外部ツールで変換してください。
+      </div>
+    </div>
+
+    <!-- ログパネル -->
+    <div id="log-panel">
+      <div style="font-weight:600;margin-bottom:4px;">ログ</div>
+      <div id="log"></div>
+      <div style="margin-top:4px;color:#ccc;">
+        ※ズーム時は、録画・TLもプレビューと同じ見え方で保存します。<br>
+        ※「線・文字くっきり」はノートやプリント撮影向きです。
+      </div>
+    </div>
+
+    <!-- ズーム選択中のヒント -->
+    <div id="zoom-hint">ズームしたい範囲をドラッグ（指／ペン／マウス）</div>
+  </div>
+
+  <script>
+    /* ===== 要素／状態 ===== */
+    const video = document.getElementById('video');
+    const drawCanvas = document.getElementById('draw-layer');
+    const drawCtx = drawCanvas.getContext('2d');
+    const uiCanvas = document.getElementById('ui-layer');
+    const uiCtx = uiCanvas.getContext('2d');
+    const cameraWrapper = document.getElementById('camera-wrapper');
+    const cameraInner = document.getElementById('camera-inner');
+
+    const btnStartCamera = document.getElementById('btn-start-camera');
+    const btnClear = document.getElementById('btn-clear');
+    const btnShot = document.getElementById('btn-shot');
+    const btnStartRec = document.getElementById('btn-start-rec');
+    const btnStopRec = document.getElementById('btn-stop-rec');
+    const btnStartTl = document.getElementById('btn-start-tl');
+    const btnStopTl = document.getElementById('btn-stop-tl');
+    const btnZoomSelect = document.getElementById('btn-zoom-select');
+    const btnZoomReset = document.getElementById('btn-zoom-reset');
+    const videoSettingsToggle = document.getElementById('video-settings-toggle');
+
+    const penToggle = document.getElementById('pen-toggle');
+    const penPanel = document.getElementById('pen-panel');
+    const videoPanel = document.getElementById('video-panel');
+
+    const penColorInput = document.getElementById('pen-color');
+    const penSizeInput = document.getElementById('pen-size');
+    const penTypeSelect = document.getElementById('pen-type');
+    let penType = 'marker';
+
+    const videoFpsInput = document.getElementById('video-fps');
+    const tlFpsInput = document.getElementById('tl-fps');
+    const tlIntervalInput = document.getElementById('tl-interval');
+
+    const brightnessSlider = document.getElementById('brightness');
+    const contrastSlider = document.getElementById('contrast');
+    const exposureSlider = document.getElementById('exposure');
+    const colorTempSlider = document.getElementById('color-temp');
+    const sharpnessSlider = document.getElementById('sharpness');
+    const lineBoostCheckbox = document.getElementById('line-boost');
+    const noiseReduceCheckbox = document.getElementById('noise-reduce');
+    const flipHCheckbox = document.getElementById('flip-h');
+    const flipVCheckbox = document.getElementById('flip-v');
+    const audioEnabledCheckbox = document.getElementById('audio-enabled');
+    const cameraSelect = document.getElementById('camera-select');
+
+    const logEl = document.getElementById('log');
+    const logPanel = document.getElementById('log-panel');
+    const logToggle = document.getElementById('log-toggle');
+    const zoomHint = document.getElementById('zoom-hint');
+
+    const recTimerEl = document.getElementById('rec-timer');
+    const tlTimerEl = document.getElementById('tl-timer');
+
+    const eyedropperBtn = document.getElementById('pen-eyedropper');
+    const lassoBtn = document.getElementById('pen-lasso');
+    const stickerSaveBtn = document.getElementById('sticker-save');
+    const stickerLoadBtn = document.getElementById('sticker-load');
+    const stickerDeleteBtn = document.getElementById('sticker-delete');
+    const stickerFileInput = document.getElementById('sticker-file');
+
+    let eyedropperMode = false;
+    let lassoMode = false;
+    let isLassoDrawing = false;
+    let lassoPath = []; // {x,y} (uiCanvas座標)
+
+    // ステッカー管理
+    let stickers = [];           // {canvas,w,h,x,y,scale,rotation}
+    let activeStickerIndex = -1;
+    let showStickerControls = true;
+
+    const compositeCanvas = document.createElement('canvas');
+    const compositeCtx = compositeCanvas.getContext('2d');
+
+    let cameraStream = null;
+    let currentVideoDeviceId = null;
+    let hasInitializedCamera = false;
+
+    const supportsMediaRecorder = typeof MediaRecorder !== 'undefined';
+    let supportsCaptureStream = false;
+    try {
+      supportsCaptureStream = typeof compositeCanvas.captureStream === 'function';
+    } catch (e) {
+      supportsCaptureStream = false;
+    }
+
+    drawCtx.imageSmoothingEnabled = false;
+    uiCtx.imageSmoothingEnabled = false;
+    compositeCtx.imageSmoothingEnabled = false;
+
+    // 手描き状態
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // 録画
+    let recorder = null;
+    let recordedChunks = [];
+    let recordingMode = null;
+    let animationId = null;
+    let lastTlTime = 0;
+    let tlIntervalMs = 500;
+    let recStartTime = null;
+    let tlStartTime = null;
+    let recTimerId = null;
+    let tlTimerId = null;
+
+    // ズーム
+    let zoomMode = false;
+    let zoomRect = null;
+    let zoomDragStart = null;
+    let lastZoomPos = null;
+
+    // 映像設定
+    const settings = {
+      brightness: 1,
+      contrast: 1,
+      exposure: 0,
+      colorTemp: 0,
+      sharpness: 0,
+      lineBoost: false,
+      noiseReduce: false
+    };
+    let videoFilterString = 'brightness(1) contrast(1)';
+    let flipH = true;
+    let flipV = false;
+    let audioEnabled = false;
+    audioEnabledCheckbox.checked = false;
+
+    // ステッカードラッグ
+    const stickerDrag = {
+      active: false,
+      mode: null, // "move" or "rotate"
+      startX: 0,
+      startY: 0,
+      startScale: 1,
+      startRotation: 0,
+      startPointerX: 0,
+      startPointerY: 0,
+      startDist: 0,
+      startAngle: 0
+    };
+
+    function log(msg) {
+      const now = new Date();
+      const time = now.toLocaleTimeString();
+      logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+    }
+
+    if (!supportsMediaRecorder || !supportsCaptureStream) {
+      log('このブラウザでは録画／タイムラプス機能が完全にはサポートされていない可能性があります（静止画は利用可能）。');
+    }
+
+    function formatTime(ms) {
+      const totalSec = Math.floor(ms / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    function startRecTimer() {
+      recStartTime = Date.now();
+      recTimerEl.textContent = '00:00';
+      if (recTimerId) clearInterval(recTimerId);
+      recTimerId = setInterval(() => {
+        recTimerEl.textContent = formatTime(Date.now() - recStartTime);
+      }, 500);
+    }
+    function stopRecTimer() {
+      if (recTimerId) {
+        clearInterval(recTimerId);
+        recTimerId = null;
+      }
+    }
+    function startTlTimer() {
+      tlStartTime = Date.now();
+      tlTimerEl.textContent = '00:00';
+      if (tlTimerId) clearInterval(tlTimerId);
+      tlTimerId = setInterval(() => {
+        tlTimerEl.textContent = formatTime(Date.now() - tlStartTime);
+      }, 500);
+    }
+    function stopTlTimer() {
+      if (tlTimerId) {
+        clearInterval(tlTimerId);
+        tlTimerId = null;
+      }
+    }
+
+    logToggle.addEventListener('click', () => {
+      logPanel.classList.toggle('open');
+    });
+    penToggle.addEventListener('click', () => {
+      penPanel.style.display = penPanel.style.display === 'block' ? 'none' : 'block';
+    });
+    videoSettingsToggle.addEventListener('click', () => {
+      videoPanel.style.display = videoPanel.style.display === 'block' ? 'none' : 'block';
+    });
+
+    audioEnabledCheckbox.addEventListener('change', () => {
+      audioEnabled = audioEnabledCheckbox.checked;
+      log(`音声録音: ${audioEnabled ? 'ON' : 'OFF'}`);
+      if (cameraStream) {
+        cameraStream.getAudioTracks().forEach(t => {
+          t.enabled = audioEnabled;
+        });
+      }
+    });
+
+    penTypeSelect.addEventListener('change', () => {
+      penType = penTypeSelect.value;
+      log(`ペン種類: ${penTypeSelect.options[penTypeSelect.selectedIndex].text}`);
+    });
+
+    /* ===== カメラ ===== */
+    async function populateCameraList() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '';
+
+        videoDevices.forEach((d, idx) => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `カメラ ${idx + 1}`;
+          cameraSelect.appendChild(opt);
+        });
+
+        if (!currentVideoDeviceId && videoDevices[0]) {
+          currentVideoDeviceId = videoDevices[0].deviceId;
+        }
+        if (currentVideoDeviceId) {
+          cameraSelect.value = currentVideoDeviceId;
+        }
+
+        cameraSelect.disabled = videoDevices.length <= 1;
+        if (videoDevices.length > 1) {
+          log(`カメラを ${videoDevices.length} 台検出しました。映像設定から切り替えできます。`);
+        }
+      } catch (e) {
+        console.log('enumerateDevices error', e);
+      }
+    }
+
+    async function initCamera(deviceId = null) {
+      try {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(t => t.stop());
+        }
+
+        const constraints = {
+          video: deviceId
+            ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+            : { width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: true
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        cameraStream = stream;
+        hasInitializedCamera = true;
+
+        cameraStream.getAudioTracks().forEach(t => { t.enabled = audioEnabled; });
+
+        video.srcObject = cameraStream;
+        log(deviceId ? 'カメラを切り替えました' : 'カメラを開始しました');
+
+        video.addEventListener('loadedmetadata', () => {
+          resizeCanvases();
+          btnShot.disabled = false;
+          if (supportsMediaRecorder && supportsCaptureStream) {
+            btnStartRec.disabled = false;
+            btnStartTl.disabled = false;
+          } else {
+            btnStartRec.disabled = true;
+            btnStopRec.disabled = true;
+            btnStartTl.disabled = true;
+            btnStopTl.disabled = true;
+          }
+        }, { once: true });
+
+        btnStartCamera.disabled = true;
+
+        await populateCameraList();
+      } catch (e) {
+        console.error(e);
+        log('カメラが許可されなかったか、選択したカメラが利用できませんでした');
+      }
+    }
+
+    btnStartCamera.addEventListener('click', () => {
+      initCamera(currentVideoDeviceId);
+    });
+
+    cameraSelect.addEventListener('change', () => {
+      const devId = cameraSelect.value;
+      currentVideoDeviceId = devId;
+      if (hasInitializedCamera) {
+        initCamera(devId);
+      }
+    });
+
+    /* ===== キャンバスサイズ ===== */
+    function resizeCanvases() {
+      const rect = cameraWrapper.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+
+      [drawCanvas, uiCanvas, compositeCanvas].forEach(c => {
+        c.width = width * dpr;
+        c.height = height * dpr;
+        if (c !== compositeCanvas) {
+          c.style.width = width + 'px';
+          c.style.height = height + 'px';
+        }
+      });
+
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+
+      zoomRect = null;
+      updateZoomTransform();
+
+      stickers = [];
+      activeStickerIndex = -1;
+      lassoPath = [];
+      isLassoDrawing = false;
+      showStickerControls = false;
+      uiCanvas.style.pointerEvents = 'none';
+
+      log(`キャンバス: ${width}x${height} (DPR=${dpr} → 内部 ${drawCanvas.width}x${drawCanvas.height})`);
+    }
+
+    window.addEventListener('resize', () => {
+      if (video.videoWidth) resizeCanvases();
+    });
+
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        if (video.videoWidth) resizeCanvases();
+      }, 200);
+    });
+
+    /* ===== 座標変換 ===== */
+    function getCanvasPos(e) {
+      const rect = drawCanvas.getBoundingClientRect();
+      let clientX, clientY;
+      if (e.touches && e.touches[0]) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      const x = (clientX - rect.left) * (drawCanvas.width / rect.width);
+      const y = (clientY - rect.top) * (drawCanvas.height / rect.height);
+      return { x, y, clientX, clientY };
+    }
+
+    function getUiCanvasPos(e) {
+      const rect = uiCanvas.getBoundingClientRect();
+      let clientX, clientY;
+      if (e.touches && e.touches[0]) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      const x = (clientX - rect.left) * (uiCanvas.width / rect.width);
+      const y = (clientY - rect.top) * (uiCanvas.height / rect.height);
+      return { x, y };
+    }
+
+    function getWrapperPosFromClient(clientX, clientY) {
+      const rect = cameraWrapper.getBoundingClientRect();
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
+    }
+
+    /* ===== スポイト ===== */
+    function pickColorAtCssPos(cssX, cssY) {
+      if (!video.videoWidth || !compositeCanvas.width || !compositeCanvas.height) {
+        log('カメラ起動後に色を取得できます');
+        return;
+      }
+      drawCompositeFrame();
+
+      const rect = cameraWrapper.getBoundingClientRect();
+      const px = Math.floor(cssX * (compositeCanvas.width / rect.width));
+      const py = Math.floor(cssY * (compositeCanvas.height / rect.height));
+      if (px < 0 || py < 0 || px >= compositeCanvas.width || py >= compositeCanvas.height) return;
+
+      const data = compositeCtx.getImageData(px, py, 1, 1).data;
+      const r = data[0], g = data[1], b = data[2];
+      const toHex = v => v.toString(16).padStart(2, '0');
+      const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+      penColorInput.value = hex;
+      log(`スポイトで色を取得: ${hex} (R${r} G${g} B${b})`);
+    }
+
+    eyedropperBtn.addEventListener('click', () => {
+      eyedropperMode = !eyedropperMode;
+      if (eyedropperMode) {
+        lassoMode = false;
+        isLassoDrawing = false;
+        lassoPath = [];
+        lassoBtn.style.borderColor = 'rgba(255,255,255,0.3)';
+        uiCanvas.style.pointerEvents = stickers.length ? 'auto' : 'none';
+      }
+      eyedropperBtn.style.borderColor = eyedropperMode
+        ? 'rgba(0,255,180,0.9)'
+        : 'rgba(255,255,255,0.3)';
+      log(`スポイト: ${eyedropperMode ? 'ON（映像上をタップしてください）' : 'OFF'}`);
+    });
+
+    /* ===== ペン描画（ブラシ表現） ===== */
+    function drawStrokeSegment(x0, y0, x1, y1) {
+      const color = penColorInput.value;
+      const baseSize = Number(penSizeInput.value) || 3;
+
+      if (penType === 'watercolor') {
+        // 水彩：やわらかく透ける線を重ね塗り
+        drawCtx.save();
+        drawCtx.strokeStyle = color;
+        drawCtx.lineCap = 'round';
+        drawCtx.lineJoin = 'round';
+
+        drawCtx.globalAlpha = 0.18;
+        drawCtx.lineWidth = baseSize * 2.2;
+        drawCtx.beginPath();
+        drawCtx.moveTo(x0, y0);
+        drawCtx.lineTo(x1, y1);
+        drawCtx.stroke();
+
+        drawCtx.globalAlpha = 0.08;
+        drawCtx.lineWidth = baseSize * 3.0;
+        drawCtx.beginPath();
+        drawCtx.moveTo(x0, y0);
+        drawCtx.lineTo(x1, y1);
+        drawCtx.stroke();
+
+        drawCtx.restore();
+        return;
+      }
+
+      if (penType === 'chalk') {
+        // チョーク：少しザラッとしたライン＋粉っぽい粒
+        drawCtx.save();
+        drawCtx.strokeStyle = color;
+        drawCtx.lineCap = 'round';
+        drawCtx.lineJoin = 'round';
+
+        drawCtx.globalAlpha = 0.4;
+        drawCtx.lineWidth = baseSize * 1.4;
+        drawCtx.beginPath();
+        drawCtx.moveTo(x0, y0);
+        drawCtx.lineTo(x1, y1);
+        drawCtx.stroke();
+
+        // 粉っぽい粒
+        const len = Math.hypot(x1 - x0, y1 - y0);
+        const steps = Math.max(4, Math.floor(len / 10));
+        drawCtx.globalAlpha = 0.6;
+        drawCtx.fillStyle = color;
+        for (let i = 0; i < steps; i++) {
+          const t = i / steps;
+          const px = x0 + (x1 - x0) * t;
+          const py = y0 + (y1 - y0) * t;
+          const ox = (Math.random() - 0.5) * baseSize;
+          const oy = (Math.random() - 0.5) * baseSize;
+          drawCtx.fillRect(px + ox, py + oy, 1.2, 1.2);
+        }
+
+        drawCtx.restore();
+        return;
+      }
+
+      if (penType === 'crayon') {
+        // クレヨン：少し揺らいだ線を何本か重ねる
+        drawCtx.save();
+        drawCtx.strokeStyle = color;
+        drawCtx.lineCap = 'round';
+        drawCtx.lineJoin = 'round';
+
+        const jitter = baseSize * 0.6;
+        const lines = 3;
+        for (let i = 0; i < lines; i++) {
+          const jx0 = x0 + (Math.random() - 0.5) * jitter;
+          const jy0 = y0 + (Math.random() - 0.5) * jitter;
+          const jx1 = x1 + (Math.random() - 0.5) * jitter;
+          const jy1 = y1 + (Math.random() - 0.5) * jitter;
+          drawCtx.globalAlpha = 0.55;
+          drawCtx.lineWidth = baseSize * 0.95;
+          drawCtx.beginPath();
+          drawCtx.moveTo(jx0, jy0);
+          drawCtx.lineTo(jx1, jy1);
+          drawCtx.stroke();
+        }
+
+        drawCtx.restore();
+        return;
+      }
+
+      // マジック：しっかりした不透明ライン
+      drawCtx.save();
+      drawCtx.strokeStyle = color;
+      drawCtx.lineCap = 'round';
+      drawCtx.lineJoin = 'round';
+      drawCtx.globalAlpha = 0.95;
+      drawCtx.lineWidth = baseSize * 1.3;
+      drawCtx.beginPath();
+      drawCtx.moveTo(x0, y0);
+      drawCtx.lineTo(x1, y1);
+      drawCtx.stroke();
+      drawCtx.restore();
+    }
+
+    function startDraw(e) {
+      if (zoomMode) return;
+      if (lassoMode) return;
+      e.preventDefault();
+
+      const pos = getCanvasPos(e);
+
+      if (eyedropperMode) {
+        const rect = cameraWrapper.getBoundingClientRect();
+        const cssX = pos.clientX - rect.left;
+        const cssY = pos.clientY - rect.top;
+        pickColorAtCssPos(cssX, cssY);
+        eyedropperMode = false;
+        eyedropperBtn.style.borderColor = 'rgba(255,255,255,0.3)';
+        return;
+      }
+
+      // 手描き開始時はステッカーの枠／ハンドルを隠す
+      showStickerControls = false;
+      if (stickers.length) {
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        redrawStickerOverlay(false);
+      }
+
+      isDrawing = true;
+      lastX = pos.x;
+      lastY = pos.y;
+    }
+
+    function draw(e) {
+      if (!isDrawing || zoomMode) return;
+      if (lassoMode) return;
+      e.preventDefault();
+      const pos = getCanvasPos(e);
+      drawStrokeSegment(lastX, lastY, pos.x, pos.y);
+      lastX = pos.x;
+      lastY = pos.y;
+    }
+
+    function endDraw(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      isDrawing = false;
+    }
+
+    drawCanvas.addEventListener('mousedown', startDraw);
+    drawCanvas.addEventListener('mousemove', draw);
+    drawCanvas.addEventListener('mouseup', endDraw);
+    drawCanvas.addEventListener('mouseleave', endDraw);
+
+    drawCanvas.addEventListener('touchstart', startDraw, { passive: false });
+    drawCanvas.addEventListener('touchmove', draw, { passive: false });
+    drawCanvas.addEventListener('touchend', endDraw, { passive: false });
+    drawCanvas.addEventListener('touchcancel', endDraw, { passive: false });
+
+    btnClear.addEventListener('click', () => {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+      stickers = [];
+      activeStickerIndex = -1;
+      lassoPath = [];
+      isLassoDrawing = false;
+      showStickerControls = false;
+      uiCanvas.style.pointerEvents = 'none';
+      log('手描きレイヤーとステッカーをクリアしました');
+    });
+
+    /* ===== 映像フィルタ ===== */
+    function updateVideoFilter() {
+      const exposureFactor = Math.pow(2, settings.exposure);
+      const b = settings.brightness * exposureFactor;
+      const c = settings.contrast;
+      const t = settings.colorTemp;
+
+      let filter = `brightness(${b}) contrast(${c})`;
+      if (t > 0) {
+        const amt = t;
+        filter += ` sepia(${amt}) saturate(${1 + 0.5 * amt}) hue-rotate(-10deg)`;
+      } else if (t < 0) {
+        const amt = -t;
+        filter += ` saturate(${1 - 0.3 * amt}) hue-rotate(${amt * 20}deg)`;
+      }
+      videoFilterString = filter;
+      video.style.filter = filter;
+    }
+
+    function updateVideoFlipPreview() {
+      const sx = flipH ? -1 : 1;
+      const sy = flipV ? -1 : 1;
+      video.style.transform = `scaleX(${sx}) scaleY(${sy})`;
+    }
+
+    brightnessSlider.addEventListener('input', () => {
+      settings.brightness = parseFloat(brightnessSlider.value) || 1;
+      updateVideoFilter();
+    });
+    contrastSlider.addEventListener('input', () => {
+      settings.contrast = parseFloat(contrastSlider.value) || 1;
+      updateVideoFilter();
+    });
+    exposureSlider.addEventListener('input', () => {
+      settings.exposure = parseFloat(exposureSlider.value) || 0;
+      updateVideoFilter();
+    });
+    colorTempSlider.addEventListener('input', () => {
+      settings.colorTemp = parseFloat(colorTempSlider.value) || 0;
+      updateVideoFilter();
+    });
+    sharpnessSlider.addEventListener('input', () => {
+      settings.sharpness = parseFloat(sharpnessSlider.value) || 0;
+    });
+    lineBoostCheckbox.addEventListener('change', () => {
+      settings.lineBoost = lineBoostCheckbox.checked;
+      log(`線・文字くっきり: ${settings.lineBoost ? 'ON' : 'OFF'}`);
+    });
+    noiseReduceCheckbox.addEventListener('change', () => {
+      settings.noiseReduce = noiseReduceCheckbox.checked;
+      log(`ノイズ軽減: ${settings.noiseReduce ? 'ON' : 'OFF'}`);
+    });
+    flipHCheckbox.addEventListener('change', () => {
+      flipH = flipHCheckbox.checked;
+      updateVideoFlipPreview();
+      log(`左右反転: ${flipH ? 'ON' : 'OFF'}`);
+    });
+    flipVCheckbox.addEventListener('change', () => {
+      flipV = flipVCheckbox.checked;
+      updateVideoFlipPreview();
+      log(`上下反転: ${flipV ? 'ON' : 'OFF'}`);
+    });
+
+    updateVideoFilter();
+    updateVideoFlipPreview();
+
+    /* ===== ノイズ・シャープ ===== */
+    function applyDenoiseToImage(img, strength) {
+      if (strength <= 0) return;
+      const w = img.width;
+      const h = img.height;
+      const data = img.data;
+      const src = new Uint8ClampedArray(data);
+      const k = strength;
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          let r = 0, g = 0, b = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const idx2 = ((y + ky) * w + (x + kx)) * 4;
+              r += src[idx2];
+              g += src[idx2 + 1];
+              b += src[idx2 + 2];
+            }
+          }
+          const blurR = r / 9;
+          const blurG = g / 9;
+          const blurB = b / 9;
+          const origR = src[idx];
+          const origG = src[idx + 1];
+          const origB = src[idx + 2];
+
+          data[idx]     = Math.max(0, Math.min(255, origR * (1-k) + blurR * k));
+          data[idx + 1] = Math.max(0, Math.min(255, origG * (1-k) + blurG * k));
+          data[idx + 2] = Math.max(0, Math.min(255, origB * (1-k) + blurB * k));
+        }
+      }
+    }
+
+    function applySharpenToImage(img, amount, lineBoost) {
+      if (amount <= 0) return;
+      const w = img.width;
+      const h = img.height;
+      const data = img.data;
+      const src = new Uint8ClampedArray(data);
+
+      const centerBase = lineBoost ? 10 : 5;
+      const gain = lineBoost ? 10 : 4;
+      const center = centerBase + gain * amount;
+
+      const kernel = [
+        0, -1, 0,
+        -1, center, -1,
+        0, -1, 0
+      ];
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          let r = 0, g = 0, b = 0;
+          let ki = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const idx2 = ((y + ky) * w + (x + kx)) * 4;
+              const wgt = kernel[ki++];
+              r += src[idx2] * wgt;
+              g += src[idx2 + 1] * wgt;
+              b += src[idx2 + 2] * wgt;
+            }
+          }
+          data[idx]     = Math.max(0, Math.min(255, r));
+          data[idx + 1] = Math.max(0, Math.min(255, g));
+          data[idx + 2] = Math.max(0, Math.min(255, b));
+        }
+      }
+
+      if (lineBoost) {
+        const contrast = 1.4 + 0.6 * amount;
+        for (let i = 0; i < data.length; i += 4) {
+          let r = data[i], g = data[i+1], b = data[i+2];
+          const yLum = 0.299*r + 0.587*g + 0.114*b;
+          const y2 = 128 + (yLum - 128) * contrast;
+          const ratio = yLum > 0 ? (y2 / yLum) : 1;
+          data[i]   = Math.max(0, Math.min(255, r * ratio));
+          data[i+1] = Math.max(0, Math.min(255, g * ratio));
+          data[i+2] = Math.max(0, Math.min(255, b * ratio));
+        }
+      }
+    }
+
+    /* ===== ステッカー描画 ===== */
+    function drawSingleSticker(ctx, st) {
+      ctx.save();
+      ctx.translate(st.x, st.y);
+      ctx.rotate(st.rotation);
+      ctx.scale(st.scale, st.scale);
+      ctx.drawImage(st.canvas, -st.w / 2, -st.h / 2);
+      ctx.restore();
+    }
+
+    function drawStickersToCtx(ctx) {
+      for (const st of stickers) {
+        drawSingleSticker(ctx, st);
+      }
+    }
+
+    function redrawStickerOverlay(clearFirst) {
+      if (clearFirst) {
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+      }
+      if (!stickers.length) return;
+
+      stickers.forEach((st, idx) => {
+        uiCtx.save();
+        uiCtx.translate(st.x, st.y);
+        uiCtx.rotate(st.rotation);
+        uiCtx.scale(st.scale, st.scale);
+
+        // 本体画像
+        uiCtx.drawImage(st.canvas, -st.w / 2, -st.h / 2);
+
+        // アクティブなステッカーの枠＋ハンドル（表示フラグがONのときのみ）
+        if (idx === activeStickerIndex && showStickerControls) {
+          uiCtx.strokeStyle = 'rgba(0,255,255,0.9)';
+          uiCtx.lineWidth = 2;
+          uiCtx.strokeRect(-st.w / 2, -st.h / 2, st.w, st.h);
+
+          const hx = st.w / 2 + 16;
+          const hy = -st.h / 2 - 16;
+          const r = 10;
+          uiCtx.fillStyle = 'rgba(0,255,180,0.9)';
+          uiCtx.beginPath();
+          uiCtx.arc(hx, hy, r, 0, Math.PI * 2);
+          uiCtx.fill();
+          uiCtx.strokeStyle = '#003333';
+          uiCtx.lineWidth = 1;
+          uiCtx.stroke();
+        }
+
+        uiCtx.restore();
+      });
+    }
+
+    function getStickerLocalCoords(st, px, py) {
+      const dx = px - st.x;
+      const dy = py - st.y;
+      const cosA = Math.cos(-st.rotation);
+      const sinA = Math.sin(-st.rotation);
+      const rx = dx * cosA - dy * sinA;
+      const ry = dx * sinA + dy * cosA;
+      return {
+        x: rx / st.scale,
+        y: ry / st.scale
+      };
+    }
+
+    function postProcessFrame() {
+      const w = compositeCanvas.width;
+      const h = compositeCanvas.height;
+      if (!w || !h) return;
+
+      const needDenoise = settings.noiseReduce;
+      const sharpFromSlider = settings.sharpness;
+      const extraFromLine = settings.lineBoost ? 0.8 : 0;
+      const sharpAmount = Math.min(1.5, Math.max(0, sharpFromSlider + extraFromLine));
+
+      if (!needDenoise && sharpAmount <= 0) return;
+
+      const img = compositeCtx.getImageData(0, 0, w, h);
+
+      if (needDenoise) {
+        applyDenoiseToImage(img, 0.7);
+      }
+      if (sharpAmount > 0) {
+        applySharpenToImage(img, sharpAmount, settings.lineBoost);
+      }
+
+      compositeCtx.putImageData(img, 0, 0);
+    }
+
+    /* ===== 合成フレーム（映像＋手描き＋ステッカー） ===== */
+    function drawCompositeFrame() {
+      const w = compositeCanvas.width;
+      const h = compositeCanvas.height;
+      if (!w || !h) return;
+      if (!video.videoWidth || !video.videoHeight) return;
+
+      const Wcss = cameraWrapper.clientWidth;
+      const Hcss = cameraWrapper.clientHeight;
+      if (!Wcss || !Hcss) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+
+      compositeCtx.save();
+      compositeCtx.setTransform(1, 0, 0, 1, 0, 0);
+      compositeCtx.fillStyle = 'black';
+      compositeCtx.fillRect(0, 0, w, h);
+
+      compositeCtx.scale(dpr, dpr);
+
+      let s = 1;
+      let tx = 0;
+      let ty = 0;
+
+      if (zoomRect) {
+        const r = zoomRect;
+        const sZoom = Math.max(Wcss / r.w, Hcss / r.h);
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        const CwX = Wcss / 2;
+        const CwY = Hcss / 2;
+        tx = CwX - sZoom * cx;
+        ty = CwY - sZoom * cy;
+        s = sZoom;
+      }
+
+      compositeCtx.translate(tx, ty);
+      compositeCtx.scale(s, s);
+
+      const s0 = Math.max(Wcss / vw, Hcss / vh);
+      const vsW = vw * s0;
+      const vsH = vh * s0;
+      const dx = (Wcss - vsW) / 2;
+      const dy = (Hcss - vsH) / 2;
+
+      compositeCtx.save();
+      compositeCtx.filter = videoFilterString || 'none';
+
+      let drawTx = dx;
+      let drawTy = dy;
+      let scaleX = 1;
+      let scaleY = 1;
+      if (flipH) {
+        drawTx = dx + vsW;
+        scaleX = -1;
+      }
+      if (flipV) {
+        drawTy = dy + vsH;
+        scaleY = -1;
+      }
+
+      compositeCtx.translate(drawTx, drawTy);
+      compositeCtx.scale(scaleX, scaleY);
+      compositeCtx.scale(s0, s0);
+
+      compositeCtx.drawImage(video, 0, 0, vw, vh);
+
+      compositeCtx.restore();
+
+      compositeCtx.drawImage(
+        drawCanvas,
+        0, 0, drawCanvas.width, drawCanvas.height,
+        0, 0, Wcss, Hcss
+      );
+
+      compositeCtx.restore();
+
+      drawStickersToCtx(compositeCtx);
+
+      postProcessFrame();
+    }
+
+    /* ===== 静止画撮影 ===== */
+    btnShot.addEventListener('click', () => {
+      drawCompositeFrame();
+      const url = compositeCanvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `snapshot_${ts}.png`;
+      a.click();
+      log('静止画をPNGとして保存しました（映像設定・反転・ズーム・手描き・ステッカーを反映）');
+    });
+
+    /* ===== 録画 ===== */
+    btnStartRec.addEventListener('click', () => {
+      if (!cameraStream) {
+        log('先にカメラを開始してください');
+        return;
+      }
+      if (!supportsMediaRecorder || !supportsCaptureStream) {
+        log('このブラウザでは録画機能が利用できません（iPhone Safari の一部バージョンなど）。静止画は利用可能です。');
+        return;
+      }
+
+      const fps = Number(videoFpsInput.value) || 30;
+      const stream = compositeCanvas.captureStream(fps);
+
+      if (audioEnabled && cameraStream) {
+        cameraStream.getAudioTracks().forEach(t => {
+          t.enabled = true;
+          stream.addTrack(t);
+        });
+      } else if (cameraStream) {
+        cameraStream.getAudioTracks().forEach(t => t.enabled = false);
+      }
+
+      recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      recordedChunks = [];
+      recordingMode = 'normal';
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        a.href = url;
+        a.download = `record_normal_${ts}.webm`;
+        a.click();
+        log(`通常動画(WebM, 音声${audioEnabled ? 'あり' : 'なし'})を保存しました`);
+      };
+
+      const render = () => {
+        drawCompositeFrame();
+        animationId = requestAnimationFrame(render);
+      };
+      render();
+
+      recorder.start();
+      btnStartRec.disabled = true;
+      btnStopRec.disabled = false;
+      btnStartTl.disabled = true;
+      startRecTimer();
+      log(`通常録画開始 (FPS: ${fps}, ズーム: ${zoomRect ? 'ON' : 'OFF'}, 音声${audioEnabled ? 'ON' : 'OFF'})`);
+    });
+
+    btnStopRec.addEventListener('click', () => {
+      if (!recorder || recordingMode !== 'normal') return;
+      recorder.stop();
+      cancelAnimationFrame(animationId);
+      animationId = null;
+      btnStartRec.disabled = false;
+      btnStopRec.disabled = true;
+      btnStartTl.disabled = false;
+      stopRecTimer();
+      log('通常録画停止');
+    });
+
+    btnStartTl.addEventListener('click', () => {
+      if (!cameraStream) {
+        log('先にカメラを開始してください');
+        return;
+      }
+      if (!supportsMediaRecorder || !supportsCaptureStream) {
+        log('このブラウザではタイムラプス録画は利用できません（iPhone Safari の一部バージョンなど）。静止画は利用可能です。');
+        return;
+      }
+
+      const fps = Number(tlFpsInput.value) || 10;
+      tlIntervalMs = Number(tlIntervalInput.value) || 500;
+
+      const stream = compositeCanvas.captureStream(fps);
+
+      if (audioEnabled && cameraStream) {
+        cameraStream.getAudioTracks().forEach(t => {
+          t.enabled = true;
+          stream.addTrack(t);
+        });
+      } else if (cameraStream) {
+        cameraStream.getAudioTracks().forEach(t => t.enabled = false);
+      }
+
+      recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      recordedChunks = [];
+      recordingMode = 'timelapse';
+      lastTlTime = performance.now();
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        a.href = url;
+        a.download = `record_timelapse_${ts}.webm`;
+        a.click();
+        log(`タイムラプス(WebM, 音声${audioEnabled ? 'あり' : 'なし'})を保存しました`);
+      };
+
+      const renderTl = (time) => {
+        if (time - lastTlTime >= tlIntervalMs) {
+          drawCompositeFrame();
+          lastTlTime = time;
+        }
+        animationId = requestAnimationFrame(renderTl);
+      };
+      animationId = requestAnimationFrame(renderTl);
+
+      recorder.start();
+      btnStartTl.disabled = true;
+      btnStopTl.disabled = false;
+      btnStartRec.disabled = true;
+      startTlTimer();
+      log(`タイムラプス録画開始 (録画FPS: ${fps}, 間隔: ${tlIntervalMs}ms, ズーム: ${zoomRect ? 'ON' : 'OFF'}, 音声${audioEnabled ? 'ON' : 'OFF'})`);
+    });
+
+    btnStopTl.addEventListener('click', () => {
+      if (!recorder || recordingMode !== 'timelapse') return;
+      recorder.stop();
+      cancelAnimationFrame(animationId);
+      animationId = null;
+      btnStartTl.disabled = false;
+      btnStopTl.disabled = true;
+      btnStartRec.disabled = false;
+      stopTlTimer();
+      log('タイムラプス録画停止');
+    });
+
+    /* ===== ズーム ===== */
+    function updateZoomTransform() {
+      if (!zoomRect) {
+        cameraInner.style.transform = 'translate(0px, 0px) scale(1)';
+        return;
+      }
+      const W = cameraWrapper.clientWidth;
+      const H = cameraWrapper.clientHeight;
+      if (!W || !H) return;
+
+      const r = zoomRect;
+      const s = Math.max(W / r.w, H / r.h);
+
+      const cx = r.x + r.w / 2;
+      const cy = r.y + r.h / 2;
+      const CwX = W / 2;
+      const CwY = H / 2;
+
+      const tx = CwX - s * cx;
+      const ty = CwY - s * cy;
+
+      cameraInner.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    }
+
+    function clearUiCanvas() {
+      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+      if (stickers.length) redrawStickerOverlay(false);
+    }
+
+    function enterZoomMode() {
+      zoomMode = true;
+      zoomDragStart = null;
+      lastZoomPos = null;
+      clearUiCanvas();
+      zoomHint.classList.add('visible');
+      drawCanvas.style.pointerEvents = 'none';
+      log('ズーム領域選択モード：映像上をドラッグしてください');
+    }
+
+    function exitZoomMode() {
+      zoomMode = false;
+      zoomDragStart = null;
+      lastZoomPos = null;
+      clearUiCanvas();
+      zoomHint.classList.remove('visible');
+      drawCanvas.style.pointerEvents = 'auto';
+    }
+
+    btnZoomSelect.addEventListener('click', () => {
+      if (!video.videoWidth) {
+        log('カメラ起動後にズームできます');
+        return;
+      }
+      enterZoomMode();
+    });
+
+    btnZoomReset.addEventListener('click', () => {
+      zoomRect = null;
+      updateZoomTransform();
+      exitZoomMode();
+      log('ズームを解除しました');
+    });
+
+    function drawZoomRectPreview(currentPos) {
+      const start = zoomDragStart;
+      clearUiCanvas();
+      uiCtx.strokeStyle = '#00ff88';
+      uiCtx.lineWidth = 2;
+      uiCtx.setLineDash([6, 4]);
+
+      const rect = cameraWrapper.getBoundingClientRect();
+      const scaleX = uiCanvas.width / rect.width;
+      const scaleY = uiCanvas.height / rect.height;
+
+      const x = Math.min(start.x, currentPos.x) * scaleX;
+      const y = Math.min(start.y, currentPos.y) * scaleY;
+      const w = Math.abs(currentPos.x - start.x) * scaleX;
+      const h = Math.abs(currentPos.y - start.y) * scaleY;
+
+      uiCtx.strokeRect(x, y, w, h);
+      uiCtx.setLineDash([]);
+
+      if (stickers.length) redrawStickerOverlay(false);
+    }
+
+    function finalizeZoom(endPosMaybe) {
+      const endPos = endPosMaybe || lastZoomPos || zoomDragStart;
+      if (!zoomDragStart || !endPos) {
+        clearUiCanvas();
+        log('ズーム範囲が決定できませんでした。もう一度ドラッグしてください。');
+        return;
+      }
+
+      const x0 = zoomDragStart.x;
+      const y0 = zoomDragStart.y;
+      const x1 = endPos.x;
+      const y1 = endPos.y;
+      const rx = Math.min(x0, x1);
+      const ry = Math.min(y0, y1);
+      const rw = Math.abs(x1 - x0);
+      const rh = Math.abs(y1 - y0);
+
+      const minSize = 20;
+      if (rw < minSize || rh < minSize) {
+        clearUiCanvas();
+        log('選択範囲が小さすぎます。もう一度広めにドラッグしてください。');
+        return;
+      }
+
+      const W = cameraWrapper.clientWidth;
+      const H = cameraWrapper.clientHeight;
+      const rxClamped = Math.max(0, Math.min(rx, W));
+      const ryClamped = Math.max(0, Math.min(ry, H));
+      const rwClamped = Math.min(rw, W - rxClamped);
+      const rhClamped = Math.min(rh, H - ryClamped);
+
+      zoomRect = { x: rxClamped, y: ryClamped, w: rwClamped, h: rhClamped };
+      updateZoomTransform();
+      exitZoomMode();
+      log('ズームを適用しました（録画・TLもこの範囲を保存）');
+    }
+
+    cameraWrapper.addEventListener('mousedown', (e) => {
+      if (!zoomMode) return;
+      e.preventDefault();
+      const pos = getWrapperPosFromClient(e.clientX, e.clientY);
+      zoomDragStart = pos;
+      lastZoomPos = pos;
+    }, { capture: true });
+    cameraWrapper.addEventListener('mousemove', (e) => {
+      if (!zoomMode || !zoomDragStart) return;
+      e.preventDefault();
+      const pos = getWrapperPosFromClient(e.clientX, e.clientY);
+      lastZoomPos = pos;
+      drawZoomRectPreview(pos);
+    }, { capture: true });
+    cameraWrapper.addEventListener('mouseup', (e) => {
+      if (!zoomMode || !zoomDragStart) return;
+      e.preventDefault();
+      const pos = getWrapperPosFromClient(e.clientX, e.clientY);
+      lastZoomPos = pos;
+      finalizeZoom(pos);
+    }, { capture: true });
+
+    cameraWrapper.addEventListener('touchstart', (e) => {
+      if (!zoomMode) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const pos = getWrapperPosFromClient(t.clientX, t.clientY);
+      zoomDragStart = pos;
+      lastZoomPos = pos;
+    }, { passive: false, capture: true });
+    cameraWrapper.addEventListener('touchmove', (e) => {
+      if (!zoomMode || !zoomDragStart) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const pos = getWrapperPosFromClient(t.clientX, t.clientY);
+      lastZoomPos = pos;
+      drawZoomRectPreview(pos);
+    }, { passive: false, capture: true });
+    cameraWrapper.addEventListener('touchend', (e) => {
+      if (!zoomMode || !zoomDragStart) return;
+      e.preventDefault();
+      finalizeZoom(null);
+    }, { passive: false, capture: true });
+
+    /* ===== なげなわボタン ===== */
+    lassoBtn.addEventListener('click', () => {
+      lassoMode = !lassoMode;
+      isLassoDrawing = false;
+      lassoPath = [];
+
+      if (lassoMode) {
+        eyedropperMode = false;
+        eyedropperBtn.style.borderColor = 'rgba(255,255,255,0.3)';
+        uiCanvas.style.pointerEvents = 'auto';
+        lassoBtn.style.borderColor = 'rgba(0,200,255,0.9)';
+        log('なげなわモード: 映像上をぐるっと囲んでください（指を離すと切り出します）');
+      } else {
+        lassoBtn.style.borderColor = 'rgba(255,255,255,0.3)';
+        if (stickers.length) {
+          uiCanvas.style.pointerEvents = 'auto';
+          redrawStickerOverlay(true);
+        } else {
+          uiCanvas.style.pointerEvents = 'none';
+          uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        }
+        log('なげなわモード: OFF');
+      }
+    });
+
+    /* ===== なげなわ＆ステッカー操作（uiCanvas）＋ ペン補助 ===== */
+    function uiPointerDown(e) {
+      if (zoomMode) return;
+      const pos = getUiCanvasPos(e);
+
+      // 1. ステッカーのヒットテスト
+      if (stickers.length) {
+        for (let i = stickers.length - 1; i >= 0; i--) {
+          const st = stickers[i];
+          const local = getStickerLocalCoords(st, pos.x, pos.y);
+          const w = st.w;
+          const h = st.h;
+
+          // ハンドル
+          const hx = w / 2 + 16;
+          const hy = -h / 2 - 16;
+          const hr = 12;
+          const dxh = local.x - hx;
+          const dyh = local.y - hy;
+          const distHandle = Math.sqrt(dxh * dxh + dyh * dyh);
+
+          if (distHandle <= hr) {
+            activeStickerIndex = i;
+            showStickerControls = true;
+            stickerDrag.active = true;
+            stickerDrag.mode = 'rotate';
+            stickerDrag.startX = st.x;
+            stickerDrag.startY = st.y;
+            stickerDrag.startScale = st.scale;
+            stickerDrag.startRotation = st.rotation;
+            stickerDrag.startPointerX = pos.x;
+            stickerDrag.startPointerY = pos.y;
+
+            const dx0 = pos.x - st.x;
+            const dy0 = pos.y - st.y;
+            stickerDrag.startDist = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+            stickerDrag.startAngle = Math.atan2(dy0, dx0);
+
+            redrawStickerOverlay(true);
+            e.preventDefault();
+            return;
+          }
+
+          // 本体
+          if (local.x >= -w / 2 && local.x <= w / 2 &&
+              local.y >= -h / 2 && local.y <= h / 2) {
+            activeStickerIndex = i;
+            showStickerControls = true;
+            stickerDrag.active = true;
+            stickerDrag.mode = 'move';
+            stickerDrag.startX = st.x;
+            stickerDrag.startY = st.y;
+            stickerDrag.startPointerX = pos.x;
+            stickerDrag.startPointerY = pos.y;
+            redrawStickerOverlay(true);
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+
+      // 2. なげなわ
+      if (lassoMode) {
+        isLassoDrawing = true;
+        lassoPath = [{ x: pos.x, y: pos.y }];
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        if (stickers.length) redrawStickerOverlay(false);
+
+        uiCtx.save();
+        uiCtx.strokeStyle = '#ffdd00';
+        uiCtx.lineWidth = 2;
+        uiCtx.setLineDash([4, 3]);
+        uiCtx.beginPath();
+        uiCtx.moveTo(pos.x, pos.y);
+        uiCtx.stroke();
+        uiCtx.restore();
+        e.preventDefault();
+        return;
+      }
+
+      // 3. それ以外 → ペン描画
+      showStickerControls = false;
+      if (stickers.length) {
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        redrawStickerOverlay(false);
+      }
+      startDraw(e);
+    }
+
+    function uiPointerMove(e) {
+      if (zoomMode) return;
+      const pos = getUiCanvasPos(e);
+
+      // ステッカードラッグ中
+      if (stickerDrag.active && activeStickerIndex >= 0) {
+        const st = stickers[activeStickerIndex];
+        e.preventDefault();
+        if (stickerDrag.mode === 'move') {
+          const dx = pos.x - stickerDrag.startPointerX;
+          const dy = pos.y - stickerDrag.startPointerY;
+          st.x = stickerDrag.startX + dx;
+          st.y = stickerDrag.startY + dy;
+        } else if (stickerDrag.mode === 'rotate') {
+          const dx = pos.x - st.x;
+          const dy = pos.y - st.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const angle = Math.atan2(dy, dx);
+          const deltaAngle = angle - stickerDrag.startAngle;
+          st.rotation = stickerDrag.startRotation + deltaAngle;
+          st.scale = Math.max(0.2, stickerDrag.startScale * (dist / stickerDrag.startDist));
+        }
+        redrawStickerOverlay(true);
+        return;
+      }
+
+      // なげなわ描画中
+      if (lassoMode && isLassoDrawing) {
+        e.preventDefault();
+        lassoPath.push({ x: pos.x, y: pos.y });
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        if (stickers.length) redrawStickerOverlay(false);
+
+        uiCtx.save();
+        uiCtx.strokeStyle = '#ffdd00';
+        uiCtx.lineWidth = 2;
+        uiCtx.setLineDash([4, 3]);
+        uiCtx.beginPath();
+        const first = lassoPath[0];
+        uiCtx.moveTo(first.x, first.y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          uiCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        uiCtx.stroke();
+        uiCtx.restore();
+        return;
+      }
+
+      // ペン
+      if (isDrawing) {
+        draw(e);
+      }
+    }
+
+    function uiPointerUp(e) {
+      if (zoomMode) return;
+
+      if (stickerDrag.active) {
+        stickerDrag.active = false;
+        stickerDrag.mode = null;
+        e.preventDefault();
+        return;
+      }
+
+      if (lassoMode && isLassoDrawing) {
+        isLassoDrawing = false;
+        e.preventDefault();
+        createStickerFromLasso();
+        return;
+      }
+
+      if (isDrawing) {
+        endDraw(e);
+      }
+    }
+
+    // なげなわ → ステッカー作成
+    function createStickerFromLasso() {
+      if (!video.videoWidth) {
+        log('カメラ起動後になげなわ切り出しができます');
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        if (stickers.length) redrawStickerOverlay(false);
+        return;
+      }
+      if (!lassoPath || lassoPath.length < 10) {
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        if (stickers.length) redrawStickerOverlay(false);
+        log('なげなわの線が短すぎます。もう少し大きく囲ってください。');
+        return;
+      }
+
+      drawCompositeFrame();
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of lassoPath) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const pad = 4;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(uiCanvas.width, maxX + pad);
+      maxY = Math.min(uiCanvas.height, maxY + pad);
+
+      const bw = Math.max(1, Math.round(maxX - minX));
+      const bh = Math.max(1, Math.round(maxY - minY));
+
+      const stickerCanvas = document.createElement('canvas');
+      stickerCanvas.width = bw;
+      stickerCanvas.height = bh;
+      const sctx = stickerCanvas.getContext('2d');
+      sctx.imageSmoothingEnabled = true;
+
+      sctx.save();
+      sctx.translate(-minX, -minY);
+      sctx.beginPath();
+      const first = lassoPath[0];
+      sctx.moveTo(first.x, first.y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        sctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+      }
+      sctx.closePath();
+      sctx.clip();
+
+      sctx.drawImage(compositeCanvas, 0, 0);
+      sctx.restore();
+
+      const st = {
+        canvas: stickerCanvas,
+        w: bw,
+        h: bh,
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+        scale: 1,
+        rotation: 0
+      };
+      stickers.push(st);
+      activeStickerIndex = stickers.length - 1;
+      showStickerControls = true;
+
+      lassoPath = [];
+      lassoMode = false;
+      lassoBtn.style.borderColor = 'rgba(255,255,255,0.3)';
+
+      uiCanvas.style.pointerEvents = 'auto';
+      uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+      redrawStickerOverlay(false);
+
+      log('なげなわで映像から切り出しました。中央をドラッグで移動、右上の丸ハンドルで回転＋拡大縮小できます（複数枚配置可能）。');
+    }
+
+    uiCanvas.addEventListener('mousedown', uiPointerDown);
+    uiCanvas.addEventListener('mousemove', uiPointerMove);
+    uiCanvas.addEventListener('mouseup', uiPointerUp);
+    uiCanvas.addEventListener('mouseleave', uiPointerUp);
+
+    uiCanvas.addEventListener('touchstart', uiPointerDown, { passive: false });
+    uiCanvas.addEventListener('touchmove', uiPointerMove, { passive: false });
+    uiCanvas.addEventListener('touchend', uiPointerUp, { passive: false });
+    uiCanvas.addEventListener('touchcancel', uiPointerUp, { passive: false });
+
+    /* ===== ステッカー保存／読込／削除 ===== */
+    stickerSaveBtn.addEventListener('click', () => {
+      if (!stickers.length) {
+        log('保存するステッカーがありません');
+        return;
+      }
+      const data = stickers.map(st => ({
+        img: st.canvas.toDataURL('image/png'),
+        x: st.x,
+        y: st.y,
+        scale: st.scale,
+        rotation: st.rotation
+      }));
+      const blob = new Blob([JSON.stringify({ stickers: data }, null, 2)], {
+        type: 'application/json'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `stickers_${ts}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      log('ステッカー配置をJSONとして保存しました');
+    });
+
+    stickerLoadBtn.addEventListener('click', () => {
+      stickerFileInput.click();
+    });
+
+    stickerFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const json = JSON.parse(ev.target.result);
+          if (!json || !Array.isArray(json.stickers)) {
+            log('JSONの形式が正しくありません（stickers配列が必要です）');
+            return;
+          }
+          const items = json.stickers;
+          const promises = items.map(item => {
+            return new Promise(resolve => {
+              const img = new Image();
+              img.onload = () => {
+                const c = document.createElement('canvas');
+                c.width = img.width;
+                c.height = img.height;
+                const cctx = c.getContext('2d');
+                cctx.drawImage(img, 0, 0);
+                resolve({
+                  canvas: c,
+                  w: c.width,
+                  h: c.height,
+                  x: item.x,
+                  y: item.y,
+                  scale: item.scale ?? 1,
+                  rotation: item.rotation ?? 0
+                });
+              };
+              img.src = item.img;
+            });
+          });
+
+          Promise.all(promises).then(list => {
+            const before = stickers.length;
+            stickers = stickers.concat(list);
+            activeStickerIndex = stickers.length ? stickers.length - 1 : -1;
+            showStickerControls = true;
+            uiCanvas.style.pointerEvents = stickers.length ? 'auto' : 'none';
+            uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+            redrawStickerOverlay(false);
+            log(`ステッカーを${list.length}枚読み込みました（合計 ${stickers.length}枚）。`);
+          });
+        } catch (err) {
+          console.error(err);
+          log('JSONの読み込みでエラーが発生しました');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    stickerDeleteBtn.addEventListener('click', () => {
+      if (activeStickerIndex < 0 || activeStickerIndex >= stickers.length) {
+        log('削除するステッカーが選択されていません');
+        return;
+      }
+      stickers.splice(activeStickerIndex, 1);
+      if (!stickers.length) {
+        activeStickerIndex = -1;
+        showStickerControls = false;
+        uiCanvas.style.pointerEvents = lassoMode ? 'auto' : 'none';
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        log('ステッカーをすべて削除しました');
+      } else {
+        activeStickerIndex = Math.min(activeStickerIndex, stickers.length - 1);
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+        redrawStickerOverlay(false);
+        log('選択中のステッカーを削除しました');
+      }
+    });
+  </script>
+</body>
+</html>
